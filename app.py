@@ -1,61 +1,66 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Flask, request, send_file, jsonify
 import os
-import requests
-import torch
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
 import numpy as np
 from PIL import Image
-import io
-import base64
+import torch
+from realesrgan import RealESRGAN
 
 app = Flask(__name__)
-CORS(app)  # CORS इनेबल कर दिया गया है
 
-# मॉडल डाउनलोड करने का सिस्टम
-MODEL_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
-MODEL_PATH = "weights/RealESRGAN_x4plus.pth"
+UPLOAD_FOLDER = 'uploads/'
+PROCESSED_FOLDER = 'processed/'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 
-os.makedirs("weights", exist_ok=True)
-if not os.path.exists(MODEL_PATH):
-    print("Downloading RealESRGAN model...")
-    response = requests.get(MODEL_URL, stream=True)
-    with open(MODEL_PATH, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-    print("Download complete.")
+MODEL_PATH = "weights/RealESRGAN_x4plus.pth"  # Pre-trained model path
+model = None  # Global model variable
 
-# Model लोड करें
-model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-upscaler = RealESRGANer(
-    scale=4,
-    model_path=MODEL_PATH,
-    model=model,
-    tile=400,
-    tile_pad=10,
-    pre_pad=0,
-    half=True
-)
+def load_ai_model():
+    global model
+    if model is None:
+        try:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            model = RealESRGAN(device, scale=4)
+            model.load_weights(MODEL_PATH, download=True)
+        except Exception as e:
+            print(f"Error loading AI model: {e}")
+            model = None
 
-@app.route('/sharpen', methods=['POST'])
-def sharpen_image():
+def enhance_image(image_path):
+    if model is None:
+        load_ai_model()
+        if model is None:
+            return None
+
+    img = Image.open(image_path).convert('RGB')
+    try:
+        enhanced_img = model.predict(img)
+    except Exception as e:
+        print(f"Error during AI inference: {e}")
+        return None
+
+    processed_image_path = os.path.join(PROCESSED_FOLDER, "enhanced_" + os.path.basename(image_path))
+    enhanced_img.save(processed_image_path)
+    return processed_image_path
+
+@app.route('/')
+def home():
+    return "AI Image Enhancer Backend is Running"
+
+@app.route('/upload', methods=['POST'])
+def upload_image():
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
-    image_file = request.files['image']
-    img = Image.open(image_file).convert('RGB')
-    img = np.array(img)
+    file = request.files['image']
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(file_path)
 
-    try:
-        output, _ = upscaler.enhance(img, outscale=4)
-        img_pil = Image.fromarray(output)
-        img_io = io.BytesIO()
-        img_pil.save(img_io, format="JPEG")
-        img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
-        return jsonify({"image": img_base64})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    processed_image_path = enhance_image(file_path)
+    if processed_image_path is None:
+        return jsonify({"error": "AI model processing failed"}), 500
+
+    return send_file(processed_image_path, mimetype='image/jpeg', as_attachment=True, download_name=os.path.basename(processed_image_path))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True) 
