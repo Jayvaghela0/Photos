@@ -1,8 +1,8 @@
 flask==2.2.5
 flask-cors==3.0.10
+requests==2.31.0
 torch==2.1.0
 numpy==1.23.5
-opencv-python==4.8.0.76
 pillow==10.0.0
 basicsr==1.4.2
 realesrgan==0.3.0
