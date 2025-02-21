@@ -29,7 +29,9 @@ def remove_logo(image_path):
     output_path = "output.png"
     cv2.imwrite(output_path, output)
     return output_path
-
+@app.route('/')
+def home():
+    return "Welcome to Photos."
 @app.route('/remove_logo', methods=['POST'])
 def upload_file():
     file = request.files['file']
