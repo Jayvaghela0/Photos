@@ -1,11 +1,14 @@
 from flask import Flask, request, send_file, jsonify
+from flask_cors import CORS  # CORS ke liye
 import os
 import torch
 from PIL import Image
 import numpy as np
 import gdown  # Google Drive se model download karne ke liye
 
+# Flask app initialize karein
 app = Flask(__name__)
+CORS(app)  # CORS enable karein
 
 # Temporary folders for uploaded and processed images
 UPLOAD_FOLDER = 'uploads/'
