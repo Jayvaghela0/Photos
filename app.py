@@ -23,7 +23,7 @@ os.makedirs(MODEL_FOLDER, exist_ok=True)
 # Google Drive se model download karein (sirf ek baar)
 def download_model():
     if not os.path.exists(MODEL_PATH):  # Check if file already exists
-        model_url = "https://drive.google.com/uc?id=YOUR_FILE_ID"  # Google Drive file ID
+        model_url = "https://drive.google.com/uc?id=1pJ_T-V1dpb1ewoEra1TGSWl5e6H7M4NN"  # Google Drive file ID
         print("Downloading model from Google Drive...")
         gdown.download(model_url, MODEL_PATH, quiet=False)
         print("Model downloaded successfully!")
