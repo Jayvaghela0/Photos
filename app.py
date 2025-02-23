@@ -4,7 +4,6 @@ import os
 import torch
 from PIL import Image
 import numpy as np
-import gdown  # Google Drive se model download karne ke liye
 
 # Flask app initialize karein
 app = Flask(__name__)
@@ -18,30 +17,13 @@ os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 
 # Model file ka path
 MODEL_FOLDER = "ESRGAN/models"
-MODEL_PATH = os.path.join(MODEL_FOLDER, "RRDB_ESRGAN_x4.pth")
+MODEL_PATH = os.path.join(MODEL_FOLDER, "RRDB_PSNR_x4.pth")  # Manually added file
 
 # Ensure models folder exists
 os.makedirs(MODEL_FOLDER, exist_ok=True)
 
-# Google Drive se model download karein (sirf ek baar)
-def download_model():
-    if not os.path.exists(MODEL_PATH):  # Check if file already exists
-        model_url = "https://drive.google.com/uc?id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"  # Google Drive file ID
-        print("Downloading model from Google Drive...")
-        try:
-            gdown.download(model_url, MODEL_PATH, quiet=False)
-            print("Model downloaded successfully!")
-        except Exception as e:
-            print(f"Error downloading model: {e}")
-            return False
-    else:
-        print("Model already exists. Skipping download.")
-    return True
-
 # ESRGAN model load karein
 def load_esrgan_model():
-    if not download_model():  # Ensure model is downloaded
-        raise Exception("Failed to download model from Google Drive.")
     from ESRGAN.models.architectures import RRDBNet  # ESRGAN model class
     model = RRDBNet(3, 3, 64, 23)  # Example parameters
     model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))  # CPU par load karein
