@@ -1,118 +1,67 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS  # CORS ke liye
-import os
+from flask import Flask, request, jsonify, send_file
 import torch
-import torch.nn as nn
 from PIL import Image
 import numpy as np
-import logging  # Debugging ke liye
+import io
+import os
 
-# Flask app initialize karein
 app = Flask(__name__)
-CORS(app)  # CORS enable karein
 
-# Logging configure karein
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+# Load ESRGAN model
+def load_esrgan_model(model_path):
+    from RealESRGAN import RealESRGANer
+    from basicsr.archs.rrdbnet_arch import RRDBNet
 
-# Temporary folders for uploaded and processed images
-UPLOAD_FOLDER = 'uploads/'
-PROCESSED_FOLDER = 'processed/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
+    netscale = 4
+    model_path = model_path
 
-# Model file ka path
-MODEL_FOLDER = "ESRGAN/models"
-MODEL_PATH = os.path.join(MODEL_FOLDER, "RRDB_PSNR_x4.pth")  # Manually added file
+    # Initialize ESRGAN upscaler
+    upscaler = RealESRGANer(
+        scale=netscale,
+        model_path=model_path,
+        model=model,
+        tile=0,
+        tile_pad=10,
+        pre_pad=0,
+        half=False
+    )
+    return upscaler
 
-# Ensure models folder exists
-os.makedirs(MODEL_FOLDER, exist_ok=True)
+# Load the pre-trained model
+model_path = "RRDB_PSNR_x4.pth"
+upscaler = load_esrgan_model(model_path)
 
-# ESRGAN model load karein
-def load_esrgan_model():
-    try:
-        from ESRGAN.models.architectures import RRDBNet  # ESRGAN model class
-        model = RRDBNet(3, 3, 64, 23)  # Example parameters
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))  # CPU par load karein
-        model.eval()  # Set model to evaluation mode
-        logger.info("ESRGAN model loaded successfully")
-        return model
-    except Exception as e:
-        logger.error(f"Error loading ESRGAN model: {e}")
-        raise
+# Image enhancement function
+def enhance_image(image):
+    # Convert image to numpy array
+    img = np.array(image)
+    # Enhance image using ESRGAN
+    output, _ = upscaler.enhance(img, outscale=4)
+    # Convert back to PIL Image
+    enhanced_image = Image.fromarray(output)
+    return enhanced_image
 
-# Enhance image using ESRGAN
-def enhance_image_using_esrgan(image_path, model):
-    try:
-        # Load and preprocess image
-        img = Image.open(image_path).convert('RGB')
-        img = np.array(img)
-        img = img.astype('float32') / 255.0  # Normalize to [0, 1]
-
-        # Convert image to tensor
-        img = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)  # HWC to BCHW
-
-        # Apply ESRGAN model
-        with torch.no_grad():  # Disable gradient calculation
-            enhanced_img = model(img).squeeze(0).permute(1, 2, 0).clamp(0, 1).numpy()  # BCHW to HWC
-
-        # Convert back to [0, 255]
-        enhanced_img = (enhanced_img * 255).astype('uint8')
-
-        # Save processed image
-        processed_image_path = os.path.join(PROCESSED_FOLDER, "enhanced_" + os.path.basename(image_path))
-        enhanced_img = Image.fromarray(enhanced_img)
-        enhanced_img.save(processed_image_path)
-        logger.info(f"Enhanced image saved: {processed_image_path}")
-        return processed_image_path
-    except Exception as e:
-        logger.error(f"Error enhancing image: {e}")
-        raise
-
-# Home route
-@app.route('/')
-def home():
-    return "ESRGAN Image Enhancer Backend"
-
-# Image upload and enhancement route
-@app.route('/upload', methods=['POST'])
-def upload_image():
+# Flask route for image upload and enhancement
+@app.route('/enhance', methods=['POST'])
+def enhance():
     if 'image' not in request.files:
-        logger.error("No image uploaded")
         return jsonify({"error": "No image uploaded"}), 400
 
+    # Read the uploaded image
     file = request.files['image']
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    image = Image.open(file.stream).convert('RGB')
 
-    try:
-        # Save uploaded image
-        file.save(file_path)
-        logger.info(f"Image saved: {file_path}")
-    except Exception as e:
-        logger.error(f"Error saving image: {e}")
-        return jsonify({"error": "Error saving image"}), 500
+    # Enhance the image
+    enhanced_image = enhance_image(image)
 
-    try:
-        # Load ESRGAN model
-        model = load_esrgan_model()
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        return jsonify({"error": "Error loading model"}), 500
+    # Save enhanced image to a temporary file
+    output_buffer = io.BytesIO()
+    enhanced_image.save(output_buffer, format="JPEG")
+    output_buffer.seek(0)
 
-    try:
-        # Enhance image using ESRGAN
-        processed_image_path = enhance_image_using_esrgan(file_path, model)
-    except Exception as e:
-        logger.error(f"Error enhancing image: {e}")
-        return jsonify({"error": "Error enhancing image"}), 500
+    # Return the enhanced image
+    return send_file(output_buffer, mimetype='image/jpeg')
 
-    try:
-        # Return processed image
-        return send_file(processed_image_path, mimetype='image/jpeg')
-    except Exception as e:
-        logger.error(f"Error sending file: {e}")
-        return jsonify({"error": "Error sending file"}), 500
-
-# Run Flask app
 if __name__ == '__main__':
     app.run(debug=True)
