@@ -1,9 +1,14 @@
-from flask import Flask, request, render_template, send_from_directory
-from flask_cors import CORS  # CORS ko import karein
+import sys
 import os
-from ESRGAN.models import RRDBNet
-from ESRGAN.utils import load_model, enhance_image
+from flask import Flask, request, render_template, send_from_directory
+from flask_cors import CORS
 import torch
+
+# ESRGAN folder ko PYTHONPATH mein add karein
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'ESRGAN')))
+
+from ESRGAN.utils import load_model, enhance_image
+from ESRGAN.models import RRDBNet
 
 # Flask app initialize karein
 app = Flask(__name__)
