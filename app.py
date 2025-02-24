@@ -2,6 +2,7 @@ from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS  # CORS ke liye
 import os
 import torch
+import torch.nn as nn
 from PIL import Image
 import numpy as np
 import logging  # Debugging ke liye
