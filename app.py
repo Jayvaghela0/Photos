@@ -1,5 +1,5 @@
 from flask import Flask, request, send_file
-from flask_cors import CORS  # CORS enable karein
+from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
 from ESRGAN.test import enhance_image  # ESRGAN ka function import karein
