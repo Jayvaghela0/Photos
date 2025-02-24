@@ -1,54 +1,44 @@
-import sys
+from flask import Flask, request, send_file
+from flask_cors import CORS  # CORS enable karein
 import os
-from flask import Flask, request, render_template, send_from_directory
-from flask_cors import CORS
-import torch
+from werkzeug.utils import secure_filename
+from ESRGAN.test import enhance_image  # ESRGAN ka function import karein
 
-# ESRGAN folder ko PYTHONPATH mein add karein
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'ESRGAN')))
-
-from ESRGAN.utils import load_model, enhance_image
-from ESRGAN.models import RRDBNet
-
-# Flask app initialize karein
 app = Flask(__name__)
-CORS(app)  # CORS ko enable karein
+CORS(app)  # CORS enable karein
 
-# Configure upload and enhanced image folders
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['ENHANCED_FOLDER'] = 'static/enhanced_images'
+# Upload folder setup
+UPLOAD_FOLDER = 'uploads'
+ENHANCED_FOLDER = 'enhanced'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(ENHANCED_FOLDER, exist_ok=True)
 
-# Load ESRGAN Model
-model_path = "ESRGAN/models/RRDB_PSNR_x4.pth"  # Path to the pre-trained model
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = RRDBNet(in_nc=3, out_nc=3, nf=64, nb=23, gc=32)
-model = load_model(model, model_path, device)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['ENHANCED_FOLDER'] = ENHANCED_FOLDER
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return "No file uploaded!"
-        file = request.files['file']
-        if file.filename == '':
-            return "No file selected!"
-        if file:
-            # Save uploaded file
-            upload_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-            file.save(upload_path)
+# ESRGAN model path
+MODEL_PATH = 'ESRGAN/models/RRDB_PSNR_x4.pth'
 
-            # Enhance image using ESRGAN
-            output_path = os.path.join(app.config['ENHANCED_FOLDER'], f"enhanced_{file.filename}")
-            enhance_image(model, upload_path, output_path, device)
+@app.route('/upload', methods=['POST'])
+def upload_image():
+    if 'image' not in request.files:
+        return {"error": "No image uploaded"}, 400
 
-            return render_template('index.html', original_image=upload_path, enhanced_image=output_path)
-    return render_template('index.html')
+    file = request.files['image']
+    if file.filename == '':
+        return {"error": "No image selected"}, 400
 
-@app.route('/download/<filename>')
-def download(filename):
-    return send_from_directory(app.config['ENHANCED_FOLDER'], filename)
+    # Save uploaded image
+    filename = secure_filename(file.filename)
+    input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(input_path)
 
-if __name__ == '__main__':
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    os.makedirs(app.config['ENHANCED_FOLDER'], exist_ok=True)
+    # Enhance image using ESRGAN
+    output_path = os.path.join(app.config['ENHANCED_FOLDER'], filename)
+    enhance_image(input_path, output_path, MODEL_PATH)
+
+    # Return enhanced image
+    return send_file(output_path, mimetype='image/jpeg')
+
+if __name__ == "__main__":
     app.run(debug=True)
