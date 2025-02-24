@@ -1,38 +1,37 @@
+import os.path as osp
+import glob
+import cv2
+import numpy as np
 import torch
-from torchvision.transforms import ToTensor, ToPILImage
-from PIL import Image
-from ESRGAN.RRDBNet_arch import RRDBNet  # RRDBNet_arch se RRDBNet import karein
+import RRDBNet_arch as arch
 
-# Load ESRGAN model
-def load_model(model_path):
-    model = RRDBNet(3, 3, 64, 23, gc=32)  # RRDBNet model define karein
-    model.load_state_dict(torch.load(model_path), strict=True)
-    model.eval()
-    return model
+model_path = 'models/RRDB_ESRGAN_x4.pth'  # models/RRDB_ESRGAN_x4.pth OR models/RRDB_PSNR_x4.pth
+device = torch.device('cuda')  # if you want to run on CPU, change 'cuda' -> cpu
+# device = torch.device('cpu')
 
-# Preprocess image
-def preprocess_image(image_path):
-    img = Image.open(image_path).convert('RGB')
-    img = img.resize((img.width // 4 * 4, img.height // 4 * 4), Image.BICUBIC)  # Resize for model
-    img_tensor = ToTensor()(img).unsqueeze(0)
-    return img_tensor
+test_img_folder = 'LR/*'
 
-# Postprocess image
-def postprocess_image(output_tensor, output_path):
-    output_img = ToPILImage()(output_tensor.squeeze(0).clamp(0, 1))
-    output_img.save(output_path)
+model = arch.RRDBNet(3, 3, 64, 23, gc=32)
+model.load_state_dict(torch.load(model_path), strict=True)
+model.eval()
+model = model.to(device)
 
-# Enhance image
-def enhance_image(input_path, output_path, model_path):
-    # Load model
-    model = load_model(model_path)
+print('Model path {:s}. \nTesting...'.format(model_path))
 
-    # Preprocess image
-    img_tensor = preprocess_image(input_path)
+idx = 0
+for path in glob.glob(test_img_folder):
+    idx += 1
+    base = osp.splitext(osp.basename(path))[0]
+    print(idx, base)
+    # read images
+    img = cv2.imread(path, cv2.IMREAD_COLOR)
+    img = img * 1.0 / 255
+    img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
+    img_LR = img.unsqueeze(0)
+    img_LR = img_LR.to(device)
 
-    # Enhance image
     with torch.no_grad():
-        enhanced_tensor = model(img_tensor)
-
-    # Postprocess and save image
-    postprocess_image(enhanced_tensor, output_path)
+        output = model(img_LR).data.squeeze().float().cpu().clamp_(0, 1).numpy()
+    output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))
+    output = (output * 255.0).round()
+    cv2.imwrite('results/{:s}_rlt.png'.format(base), output)
