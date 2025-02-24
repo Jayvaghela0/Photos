@@ -1,6 +1,3 @@
-import torch
-import torch.nn as nn
-
 class RRDBNet(nn.Module):
     def __init__(self, in_nc=3, out_nc=3, nf=64, nb=23, gc=32):
         super(RRDBNet, self).__init__()
@@ -32,17 +29,3 @@ class RRDBNet(nn.Module):
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
 
         return out
-
-class RRDB(nn.Module):
-    def __init__(self, nf, gc=32):
-        super(RRDB, self).__init__()
-        self.conv1 = nn.Conv2d(nf, gc, 3, 1, 1, bias=True)
-        self.conv2 = nn.Conv2d(nf + gc, gc, 3, 1, 1, bias=True)
-        self.conv3 = nn.Conv2d(nf + 2 * gc, gc, 3, 1, 1, bias=True)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-
-    def forward(self, x):
-        out1 = self.lrelu(self.conv1(x))
-        out2 = self.lrelu(self.conv2(torch.cat((x, out1), 1)))
-        out3 = self.lrelu(self.conv3(torch.cat((x, out1, out2), 1)))
-        return out3 * 0.2 + x
