@@ -1,44 +1,46 @@
-from flask import Flask, request, send_file
-from flask_cors import CORS  # CORS enable karein
-import os
-from werkzeug.utils import secure_filename
-from ESRGAN.test import enhance_image  # ESRGAN ka function import karein
+from flask import Flask, request, jsonify
+from flask_cors import CORS  # CORS import karein
+import cv2
+import numpy as np
+import torch
+from model import RRDBNet_arch
+from utils import imwrite
+import base64
 
 app = Flask(__name__)
 CORS(app)  # CORS enable karein
 
-# Upload folder setup
-UPLOAD_FOLDER = 'uploads'
-ENHANCED_FOLDER = 'enhanced'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(ENHANCED_FOLDER, exist_ok=True)
+# Load ESRGAN model
+model_path = 'models/RRDB_ESRGAN_x4.pth'
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = RRDBNet_arch.RRDBNet(3, 3, 64, 23, gc=32)
+model.load_state_dict(torch.load(model_path), strict=True)
+model.eval()
+model = model.to(device)
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['ENHANCED_FOLDER'] = ENHANCED_FOLDER
-
-# ESRGAN model path
-MODEL_PATH = 'ESRGAN/models/RRDB_PSNR_x4.pth'
-
-@app.route('/upload', methods=['POST'])
-def upload_image():
+@app.route('/enhance', methods=['POST'])
+def enhance_image():
     if 'image' not in request.files:
-        return {"error": "No image uploaded"}, 400
+        return jsonify({'error': 'No image uploaded'}), 400
 
     file = request.files['image']
-    if file.filename == '':
-        return {"error": "No image selected"}, 400
+    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    img = img * 1.0 / 255
+    img = torch.from_numpy(img).permute(2, 0, 1).float()
+    img = img.unsqueeze(0).to(device)
 
-    # Save uploaded image
-    filename = secure_filename(file.filename)
-    input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(input_path)
+    with torch.no_grad():
+        output = model(img)
 
-    # Enhance image using ESRGAN
-    output_path = os.path.join(app.config['ENHANCED_FOLDER'], filename)
-    enhance_image(input_path, output_path, MODEL_PATH)
+    output = output.data.squeeze().float().cpu().clamp_(0, 1).numpy()
+    output = output.transpose(1, 2, 0)
+    output = (output * 255.0).round()
 
-    # Return enhanced image
-    return send_file(output_path, mimetype='image/jpeg')
+    # Enhanced image ko base64 format mein convert karein
+    _, img_encoded = cv2.imencode('.png', output)
+    img_base64 = base64.b64encode(img_encoded).decode('utf-8')
 
-if __name__ == "__main__":
+    return jsonify({'enhancedImage': f'data:image/png;base64,{img_base64}'})
+
+if __name__ == '__main__':
     app.run(debug=True)
