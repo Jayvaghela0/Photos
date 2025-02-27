@@ -1,104 +1,62 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS  # CORS ke liye
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS  # CORS support
 import os
-import torch
-from PIL import Image
-import numpy as np
-import gdown  # Google Drive se model download karne ke liye
+from werkzeug.utils import secure_filename
+from ESRGAN.test import enhance_image  # Assuming ESRGAN has a test script
 
-# Flask app initialize karein
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # CORS enable karein
+CORS(app)  # Enable CORS for all routes
 
-# Temporary folders for uploaded and processed images
-UPLOAD_FOLDER = 'uploads/'
-PROCESSED_FOLDER = 'processed/'
+# Configuration
+UPLOAD_FOLDER = "uploads"
+OUTPUT_FOLDER = "outputs"
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
+
+# Create upload and output folders if they don't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Model file ka path
-MODEL_FOLDER = "ESRGAN/models"
-MODEL_PATH = os.path.join(MODEL_FOLDER, "RRDB_ESRGAN_x4.pth")
+# Helper function to check allowed file extensions
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Ensure models folder exists
-os.makedirs(MODEL_FOLDER, exist_ok=True)
+# Route to handle image upload and enhancement
+@app.route("/enhance", methods=["POST"])
+def enhance():
+    if "image" not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
 
-# Google Drive se model download karein (sirf ek baar)
-def download_model():
-    if not os.path.exists(MODEL_PATH):  # Check if file already exists
-        model_url = "https://drive.google.com/uc?id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"  # Google Drive file ID
-        print("Downloading model from Google Drive...")
-        try:
-            gdown.download(model_url, MODEL_PATH, quiet=False)
-            print("Model downloaded successfully!")
-        except Exception as e:
-            print(f"Error downloading model: {e}")
-            return False
-    else:
-        print("Model already exists. Skipping download.")
-    return True
+    file = request.files["image"]
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
 
-# ESRGAN model load karein
-def load_esrgan_model():
-    if not download_model():  # Ensure model is downloaded
-        raise Exception("Failed to download model from Google Drive.")
-    from ESRGAN.models.architectures import RRDBNet  # ESRGAN model class
-    model = RRDBNet(3, 3, 64, 23)  # Example parameters
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))  # CPU par load karein
-    model.eval()  # Set model to evaluation mode
-    return model
+    if file and allowed_file(file.filename):
+        # Save the uploaded file
+        filename = secure_filename(file.filename)
+        input_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(input_path)
 
-# Enhance image using ESRGAN
-def enhance_image_using_esrgan(image_path, model):
-    # Load and preprocess image
-    img = Image.open(image_path).convert('RGB')
-    img = np.array(img)
-    img = img.astype('float32') / 255.0  # Normalize to [0, 1]
+        # Enhance the image using ESRGAN
+        output_filename = f"enhanced_{filename}"
+        output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+        enhance_image(input_path, output_path)
 
-    # Convert image to tensor
-    img = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)  # HWC to BCHW
+        # Return the enhanced image URL
+        return jsonify({"enhanced_image_url": f"/output/{output_filename}"}), 200
 
-    # Apply ESRGAN model
-    with torch.no_grad():  # Disable gradient calculation
-        enhanced_img = model(img).squeeze(0).permute(1, 2, 0).clamp(0, 1).numpy()  # BCHW to HWC
+    return jsonify({"error": "Invalid file type"}), 400
 
-    # Convert back to [0, 255]
-    enhanced_img = (enhanced_img * 255).astype('uint8')
+# Route to serve enhanced images
+@app.route("/output/<filename>")
+def output(filename):
+    return send_from_directory(OUTPUT_FOLDER, filename)
 
-    # Save processed image
-    processed_image_path = os.path.join(PROCESSED_FOLDER, "enhanced_" + os.path.basename(image_path))
-    enhanced_img = Image.fromarray(enhanced_img)
-    enhanced_img.save(processed_image_path)
+# Health check route
+@app.route("/")
+def health_check():
+    return "Image Enhancer is running!"
 
-    return processed_image_path
-
-# Home route
-@app.route('/')
-def home():
-    return "ESRGAN Image Enhancer Backend"
-
-# Image upload and enhancement route
-@app.route('/upload', methods=['POST'])
-def upload_image():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-
-    file = request.files['image']
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(file_path)
-
-    try:
-        # Load ESRGAN model
-        model = load_esrgan_model()
-
-        # Enhance image using ESRGAN
-        processed_image_path = enhance_image_using_esrgan(file_path, model)
-
-        # Return processed image
-        return send_file(processed_image_path, mimetype='image/jpeg')
-    except Exception as e:
-        return jsonify({"error": f"Error enhancing image: {e}"}), 500
-
-# Run Flask app
-if __name__ == '__main__':
-    app.run(debug=True)
+# Run the app
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
