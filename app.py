@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS  # CORS support
+from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
-from ESRGAN.test import enhance_image  # Assuming ESRGAN has a test script
+from ESRGAN.test import enhance_image  # Import the enhance_image function
 
 # Initialize Flask app
 app = Flask(__name__)
